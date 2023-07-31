@@ -5,11 +5,17 @@ from ngen.config.formulation import Formulation
 from ngen.config.cfe import CFE
 from ngen.config.sloth import SLOTH
 from ngen.config.noahowp import NoahOWP
+from ngen.config.topmod import Topmod
+from ngen.config.lstm import LSTM
 from ngen.config.multi import MultiBMI
 
 #set the workdir relative to this test config
 #and use that to look for test data
 _workdir=Path(__file__).parent
+_datadir = _workdir / "data"
+_cfe_config_data_path = _datadir / "init_config_data" / "cat_87_bmi_config_cfe.ini"
+_pet_config_data_path = _datadir / "init_config_data" / "pet.ini"
+_noah_owp_config_data_path = _datadir / "init_config_data" / "noah_owp.namelist"
 
 """
 Fixtures for setting up various ngen-conf components for testing
@@ -38,7 +44,10 @@ def routing():
 @pytest.fixture
 def cfe_params():
     path = _workdir.joinpath("data/CFE/")
-    data = {'config_prefix':path, 
+    data = {
+            'model_type_name': 'CFE',
+            'name': 'bmi_c',
+            'config_prefix':path,
             # 'config': "{{id}}_config.txt", 
             'config': "config.txt", 
             'library_prefix':path,
@@ -49,7 +58,10 @@ def cfe_params():
 @pytest.fixture
 def sloth_params():
     path = _workdir.joinpath("data/sloth/")
-    data = {'config_prefix':path, 
+    data = {
+            'model_type_name': 'SLOTH',
+            'name': 'bmi_c++',
+            'config_prefix':path,
             # 'config': "{{id}}_config.txt", 
             'config': "config.txt", 
             'library_prefix':path,
@@ -60,7 +72,10 @@ def sloth_params():
 @pytest.fixture
 def topmod_params():
     path = _workdir.joinpath("data/CFE/")
-    data = {'config_prefix':path, 
+    data = {
+            'model_type_name': 'TOPMODEL',
+            'name': 'bmi_c',
+            'config_prefix':path,
             # 'config': "{{id}}_config.txt", 
             'config': "config.txt", 
             'library_prefix':path,
@@ -72,12 +87,25 @@ def topmod_params():
 def noahowp_params():
     path = _workdir.joinpath("data/NOAH/")
     libpath = _workdir.joinpath("data/CFE")
-    data = {'config_prefix':path, 
-            'config': "cat-1.input", 
+    data = {
+            'model_type_name': 'NoahOWP',
+            'name': 'bmi_fortran',
+            'config_prefix':path,
+            'config': "{{id}}.input", 
             'library_prefix': libpath,
             'library': 'libfakecfe.so'
             }
     return data   
+
+@pytest.fixture
+def lstm_params():
+    path = _workdir.joinpath("data/CFE/")
+    data = {
+            'model_type_name': 'LSTM',
+            'name': 'bmi_python',
+            'config_prefix':path,
+            'config': "{{id}}_config.txt"}
+    return data
 
 @pytest.fixture
 def cfe(cfe_params):
@@ -88,27 +116,43 @@ def sloth(sloth_params):
     return SLOTH(**sloth_params)
 
 @pytest.fixture
+def topmod(topmod_params):
+    return Topmod(**topmod_params)
+
+@pytest.fixture
 def noahowp(noahowp_params):
     return NoahOWP(**noahowp_params)
 
 @pytest.fixture
-def multi(cfe, noahowp, forcing):
+def lstm(lstm_params):
+    return LSTM(**lstm_params)
+
+@pytest.fixture
+def multi(cfe, noahowp):
     cfe.allow_exceed_end_time=True
     noahowp.allow_exceed_end_time=True
     f1 = Formulation(name=noahowp.name, params=noahowp)
     f2 = Formulation(name=cfe.name, params=cfe)
-    return MultiBMI(modules=[f1.dict(), f2.dict()], allow_exceed_end_time=True)
+    return MultiBMI(modules=[f1, f2], allow_exceed_end_time=True)
 
-@pytest.fixture
-def lstm_params():
-    path = _workdir.joinpath("data/CFE/")
-    data = {'config_prefix':path, 
-            'config': "config.txt"}
-    return data
 
 @pytest.fixture
 def multi_params(cfe, noahowp):
-    data = {"modules":[Formulation(name=noahowp.name, params=noahowp).dict(), 
-                       Formulation(name=cfe.name, params=cfe).dict()]
+    data = {
+        "name": "bmi_multi",
+        "modules":[Formulation(name=noahowp.name, params=noahowp).dict(by_alias=True),
+                       Formulation(name=cfe.name, params=cfe).dict(by_alias=True)]
             }
     return data
+
+@pytest.fixture
+def cfe_init_config() -> str:
+    return _cfe_config_data_path.read_text()
+
+@pytest.fixture
+def pet_init_config() -> str:
+    return _pet_config_data_path.read_text()
+
+@pytest.fixture
+def noah_owp_init_config() -> str:
+    return _noah_owp_config_data_path.read_text()

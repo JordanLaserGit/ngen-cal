@@ -1,7 +1,7 @@
 from pathlib import Path
 _where = str(Path(__file__).parent)
-config = {
-        "global": {
+global_config = {
+    "global": {
         "formulations": [
             {
                 "name": "bmi_c",
@@ -43,13 +43,18 @@ config = {
             "start_time": "2015-12-01 00:00:00",
             "end_time": "2015-12-30 23:00:00"
         }
-    },
+    }
+}
+
+time = {
     "time": {
         "start_time": "2015-12-01 00:00:00",
         "end_time": "2015-12-30 23:00:00",
         "output_interval": 3600
-    },
-    "catchments": {
+    }
+}
+
+catchment = {
         "tst-1": {
             "formulations": [
             {
@@ -105,8 +110,18 @@ config = {
                 }
             ]}
         }
-    }
 }
+
+
+one_catchment = {
+    "catchments": {**catchment}
+}
+
+two_catchment = {
+    "catchments": {**catchment, **catchment}
+}
+
+config = {**global_config, **time, **one_catchment}
 
 algorithm_good = {"algorithm": "dds"}
 algorithm_bad = {"algorithm": "foo"}
@@ -116,8 +131,6 @@ strategy_sensitivity = {"type": "sensitivity"}
 
 general_no_defaults = {"strategy":strategy_estimation, 
                     "iterations": 10,
-                    "evaluation_start": "2015-12-01 00:00:00", 
-                    "evaluation_stop": "2015-12-30 23:00:00",
                     "restart": True,
                     "start_iteration": 5,
                     "workdir": "/tmp",
@@ -130,4 +143,9 @@ general_w_defaults = {"strategy":strategy_estimation,
                     "evaluation_start": "2015-12-01 00:00:00", 
                     "evaluation_stop": "2015-12-30 23:00:00"}
 
-model_params = {"binary":"echo", "args":"ngen args"}
+evaluation_options = {"eval_params":{
+                        "evaluation_start": "2015-12-01 00:00:00", 
+                        "evaluation_stop": "2015-12-30 23:00:00"}
+                    }
+
+model_params = {"binary":"echo", "args":"ngen args", **evaluation_options}

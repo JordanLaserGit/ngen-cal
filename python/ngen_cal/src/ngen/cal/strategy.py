@@ -1,5 +1,5 @@
-from pydantic import BaseModel, PyObject, validator
-from typing import Optional, Union
+from pydantic import BaseModel
+from typing import Optional, Mapping, Any
 try: #to get literal in python 3.7, it was added to typing in 3.8
     from typing import Literal
 except ImportError:
@@ -15,15 +15,16 @@ class Algorithm(str, Enum):
     """Dynamic Dimensioned Search Algorithm
     """
     dds = "dds"
+    pso = "pso"
 
-class Objective(Enum):
+class Objective(str, Enum):
     """Enumeration of supported search algorithms
 
     """
     """Dynamic Dimensioned Search Algorithm
     """
     __func_map__ = {"custom": objectives.custom, 
-                    "kling_gupta": objectives.kling_gupta_efficiency,
+                    "kling_gupta": objectives.kge,
                     "nnse": objectives.normalized_nash_sutcliffe,
                     "single_peak": objectives.peak_error_single,
                     "volume": objectives.volume_error
@@ -52,21 +53,7 @@ class Estimation(BaseModel):
         Algorithm enum value defining the desired search algorithm to use
     """
     algorithm: Algorithm
-
-    """
-        Optional objective function selector
-        TODO allow for additional kwargs to be supplied to these functions?
-        Document that all functions must take obs, sim args
-    """
-    objective: Optional[Union[Objective, PyObject]] = Objective.custom
-    target: Union[Literal['min'], Literal['max'], float] = 'min'
-
-    @validator("objective")
-    def validate_objective(cls, value):
-        if value is None:
-            raise ValueError("Objective function must not be None")
-        
-        return value
+    parameters: Optional[Mapping[str, Any]] = {}
 
 class Sensitivity(BaseModel):
     """

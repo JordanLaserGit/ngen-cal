@@ -14,6 +14,7 @@ import geopandas as gpd
 import pandas as pd
 import shutil
 from enum import Enum
+import re
 from ngen.config.realization import NgenRealization, Realization, CatchmentRealization
 from ngen.config.multi import MultiBMI
 from .model import ModelExec, PosInt, Configurable
@@ -77,10 +78,11 @@ class NgenBase(ModelExec):
     nexus: FilePath
     crosswalk: FilePath
     ngen_realization: Optional[NgenRealization]
+    routing_output: Optional[Path] = Field(default=Path("flowveldepth_Ngen.h5"))
     #optional fields
     partitions: Optional[FilePath]
     parallel: Optional[PosInt]
-    params: Optional[ Mapping[str, Parameters] ] 
+    params: Optional[ Mapping[str, Parameters] ]
     #dependent fields
     binary: str = 'ngen'
     args: Optional[str]
@@ -113,7 +115,7 @@ class NgenBase(ModelExec):
         self._nexus_hydro_fabric = self._nexus_hydro_fabric.rename(columns=str.lower)
         self._nexus_hydro_fabric.set_index('id', inplace=True)
 
-        self._x_walk = pd.Series()
+        self._x_walk = pd.Series(dtype=object)
         with open(self.crosswalk) as fp:
             data = json.load(fp)
             for id, values in data.items():
@@ -139,7 +141,7 @@ class NgenBase(ModelExec):
         return self.realization
 
     @property
-    def hy_catchments(self) -> Sequence['CalibrationCatchment']:
+    def adjustables(self) -> Sequence['CalibrationCatchment']:
         """A list of Catchments for calibration
         
         These catchments hold information about the parameters/calibration data for that catchment
@@ -175,13 +177,13 @@ class NgenBase(ModelExec):
         realization = values.get('realization')
 
         custom_args = False
-        if( args is None ):
-            args = '{} "all" {} "all" {}'.format(catchments, nexus, realization)
+        if args is None:
+            args = '{} "all" {} "all" {}'.format(catchments.resolve(), nexus.resolve(), realization.name)
             values['args'] = args
         else:
             custom_args = True
 
-        if( parallel is not None and partitions is not None):
+        if parallel is not None and partitions is not None:
             binary = f'mpirun -n {parallel} {binary}'
             if not custom_args:
                 # only append this if args weren't already custom defined by user
@@ -206,11 +208,11 @@ class NgenBase(ModelExec):
         """
         parallel = values.get('parallel')
         partitions = values.get('partitions')
-        if(parallel is not None and parallel > 1 and partitions is None):
+        if parallel is not None and parallel > 1 and partitions is None:
             raise ValueError("Must provide partitions if using parallel")
         return values
 
-    def update_config(self, i: int, params: 'pd.DataFrame', id: str = None):
+    def update_config(self, i: int, params: 'pd.DataFrame', id: str = None, path=Path("./")):
         """_summary_
 
         Args:
@@ -234,13 +236,12 @@ class NgenBase(ModelExec):
         else:
             p = groups.get_group(module.model_name)
             module.model_params = p[str(i)].to_dict()
-        
-        with open(self.realization, 'w') as fp:
+        with open(path/self.realization.name, 'w') as fp:
                 fp.write( self.ngen_realization.json(by_alias=True, exclude_none=True, indent=4))
     
 class NgenExplicit(NgenBase):
     
-    strategy: Literal[NgenStrategy.explicit]
+    strategy: Literal[NgenStrategy.explicit] = NgenStrategy.explicit
 
     def __init__(self, **kwargs):
         #Let pydantic work its magic
@@ -272,9 +273,12 @@ class NgenExplicit(NgenBase):
                 #read params from the realization calibration definition
                 params = {model:[Parameter(**p) for p in params] for model, params in catchment.calibration.items()}
                 params = _map_params_to_realization(params, catchment)
-                self._catchments.append(CalibrationCatchment(self.workdir, id, nexus, start_t, end_t, fabric, output_var, params))
+                #TODO define these extra params in the realization config and parse them out explicity per catchment, cause why not?
+                eval_params = self.eval_params.copy()
+                eval_params.id = id
+                self._catchments.append(CalibrationCatchment(self.workdir, id, nexus, start_t, end_t, fabric, output_var, eval_params, params))
 
-    def update_config(self, i: int, params: 'pd.DataFrame', id: str):
+    def update_config(self, i: int, params: 'pd.DataFrame', id: str, **kwargs):
         """_summary_
 
         Args:
@@ -286,16 +290,21 @@ class NgenExplicit(NgenBase):
         if id is None:
             raise RuntimeError("NgenExplicit calibration must recieve an id to update, not None")
         
-        super().update_config(i, params, id)
+        super().update_config(i, params, id, **kwargs)
 
 class NgenIndependent(NgenBase):
-    
-    strategy: Literal[NgenStrategy.independent]
+    # TODO Error if not routing block in ngen_realization
+    strategy: Literal[NgenStrategy.independent] = NgenStrategy.independent
     params: Mapping[str, Parameters] #required in this case...
 
     def __init__(self, **kwargs):
         #Let pydantic work its magic
         super().__init__(**kwargs)
+        # FIXME cannot strip all global params cause things like sloth depend on them
+        # but the global params may have defaults in place that are not the same as the requested
+        # calibration params.  This shouldn't be an issue since each catchment overrides the global config
+        # and it won't actually be used, but the global config definition may not be correct.
+        #self._strip_global_params()
         #now we work ours
         start_t = self.ngen_realization.time.start_time
         end_t = self.ngen_realization.time.end_time
@@ -303,11 +312,23 @@ class NgenIndependent(NgenBase):
         catchments = []
         eval_nexus = []
         catchment_realizations = {}
-        g_conf = self.ngen_realization.global_config.dict(by_alias=True)
-        g_conf.pop('forcing')
+        g_conf = self.ngen_realization.global_config.copy(deep=True).dict(by_alias=True)
         for id in self._catchment_hydro_fabric.index:
             #Copy the global configuration into each catchment
             catchment_realizations[id] = CatchmentRealization(**g_conf)
+            #Need to fix the forcing definition or ngen will not work
+            #for individual catchment configs, it doesn't apply pattern resolution
+            #and will read the directory `path` key as the file key and will segfault
+            pattern = catchment_realizations[id].forcing.file_pattern
+            path = catchment_realizations[id].forcing.path
+            catchment_realizations[id].forcing.file_pattern = None
+            pattern = pattern.replace("{{id}}", id)
+            pattern = re.compile(pattern.replace("{{ID}}", id))
+            for f in path.iterdir():
+                if pattern.match(f.name):
+                    catchment_realizations[id].forcing.path = f.resolve()
+            
+
         self.ngen_realization.catchments = catchment_realizations
         
         for id, catchment in self.ngen_realization.catchments.items():#data['catchments'].items():
@@ -342,16 +363,25 @@ class NgenIndependent(NgenBase):
             catchments.append(AdjustableCatchment(self.workdir, id, nexus, params))
 
         if len(eval_nexus) != 1:
-            raise RuntimeError( "Currently only a single nexus in the hydrfabric can be gaged")
-        # FIXME hard coded routing file name...
-        self._catchments.append(CalibrationSet(catchments, eval_nexus[0], "flowveldepth_Ngen1.h5", start_t, end_t))
+            raise RuntimeError( "Currently only a single nexus in the hydrfabric can be gaged")     
+        self._catchments.append(CalibrationSet(catchments, eval_nexus[0], self.routing_output, start_t, end_t, self.eval_params))
+
+    def _strip_global_params(self) -> None:
+        module = self.ngen_realization.global_config.formulations[0].params
+        if isinstance(module, MultiBMI):
+            for m in module.modules:
+                m.params.model_params = None
+        else:
+            module.model_params = None
+            
 
 class NgenUniform(NgenBase):
     """
         Uses a global ngen configuration and permutes just this global parameter space
         which is applied to each catchment in the hydrofabric being simulated.
     """
-    strategy: Literal[NgenStrategy.uniform]
+    # TODO Error if not routing block in ngen_realization
+    strategy: Literal[NgenStrategy.uniform] = NgenStrategy.uniform
     params: Mapping[str, Parameters] #required in this case...
 
     def __init__(self, **kwargs):
@@ -362,7 +392,7 @@ class NgenUniform(NgenBase):
         end_t = self.ngen_realization.time.end_time
         eval_nexus = []
         
-        for id, toid in self._catchment_hydro_fabric['toid'].iteritems():
+        for id, toid in self._catchment_hydro_fabric['toid'].items():
             #look for an observable nexus
             nexus_data = self._nexus_hydro_fabric.loc[toid]
             nwis = None
@@ -380,9 +410,8 @@ class NgenUniform(NgenBase):
             eval_nexus.append( nexus )
         if len(eval_nexus) != 1:
             raise RuntimeError( "Currently only a single nexus in the hydrfabric can be gaged")
-        # FIXME hard coded routing file name...
         params = _params_as_df(self.params)
-        self._catchments.append(UniformCalibrationSet(eval_nexus=eval_nexus[0], routing_output="flowveldepth_Ngen1.h5", start_time=start_t, end_time=end_t, params=params))
+        self._catchments.append(UniformCalibrationSet(eval_nexus=eval_nexus[0], routing_output=self.routing_output, start_time=start_t, end_time=end_t, eval_params=self.eval_params, params=params))
             
 class Ngen(BaseModel, Configurable, smart_union=True):
     __root__: Union[NgenExplicit, NgenIndependent, NgenUniform] = Field(discriminator="strategy")
@@ -396,9 +425,34 @@ class Ngen(BaseModel, Configurable, smart_union=True):
         return self.__root__.update_config(*args, **kwargs)
     #proxy methods for model
     @property
-    def hy_catchments(self):
-        return self.__root__.hy_catchments
+    def adjustables(self):
+        return self.__root__._catchments
 
     @property
     def strategy(self):
         return self.__root__.strategy
+    
+    def restart(self) -> int:
+        starts = []
+        for catchment in self.adjustables:
+            starts.append(catchment.restart())
+        if starts and all( x == starts[0] for x in starts):
+            #if everyone agress on the iteration...
+            return starts[0]
+        else:
+            #starts is empty or someone disagress on the starting iteration...
+            return 0
+
+    @property
+    def type(self):
+        return self.__root__.type
+
+    def resolve_paths(self, relative_to: Optional[Path]=None):
+        """resolve any possible relative paths in the realization
+        """
+        if self.__root__.ngen_realization != None:
+            self.__root__.ngen_realization.resolve_paths(relative_to)
+
+    @property
+    def best_params(self):
+        return self.__root__.eval_params.best_params

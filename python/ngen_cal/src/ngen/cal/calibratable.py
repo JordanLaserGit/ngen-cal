@@ -6,6 +6,9 @@ from pathlib import Path
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
     from pathlib import Path
+    from datetime import datetime
+    from typing import Tuple, Callable, Optional
+    from .model import EvaluationOptions
 
 class Adjustable(ABC):
     """
@@ -46,11 +49,22 @@ class Adjustable(ABC):
         """
         return Series(self.df.index.values)
 
-    @abstractmethod
-    def update(self, iteration: int) -> None:
+    @property
+    def bounds(self) -> 'Tuple[Series, Series]':
+        """The bounds of each parameter that is adjustable
+
+        Returns:
+            Tuple[Series]: returns the (min,max) boundaries of the adjustable parameters
         """
-            Update the models information to prepare for the next model run
-            FIXME this is currently done in the CalibrationMeta
+        return (self.df['min'], self.df['max'])
+
+    @abstractmethod
+    def update_params(self, iteration: int) -> None:
+        """
+            FIXME update of parameter dataframe is currently done "inplace" -- there is no interface function
+            There likely *should* be one -- the big question is can it be "bundled" with the Evaluatable update function
+            or should it be a unique update/name, e.g. update_params(...) that does this?  With the CalibrationMeta 
+            refactored largely under the Evaluatable interface, there are a few options for this to consider.
             Need to decide if this needs to remain???
             Parameters
             ----------
@@ -85,10 +99,22 @@ class Adjustable(ABC):
         """
         pass
 
+    def restart(self) -> None:
+            self.load_df('./')
+
 class Evaluatable(ABC):
     """
         An Evaluatable interface defining required properties for a evaluating and object's state
     """
+
+    eval_params: 'EvaluationOptions'
+
+    def __init__(self, eval_params: 'EvaluationOptions', **kwargs):
+        """
+        Args:
+            eval_params (EvaluationOptions): The options configuring this evaluatable
+        """
+        self.eval_params = eval_params
 
     @property
     @abstractmethod
@@ -108,6 +134,61 @@ class Evaluatable(ABC):
             This should be rather static, and can be set at initialization then accessed via the property
         """
         pass
+
+    @property
+    @abstractmethod
+    def evaluation_range(self) -> 'Optional[Tuple[datetime, datetime]]':
+        """
+            The datetime range to evaluate the model results at.
+            This should be a tuple in the form of (start_time, end_time).
+        """
+        pass
+    
+    @property
+    def objective(self, *args, **kwargs) -> 'Callable':
+        """
+            The objective function to compute cost values with.
+
+        Returns:
+            Callable: objective function which takes simulation and observation time series as args
+        """
+        return self.eval_params.objective
+ 
+    def update(self, i: int, score: float, log: bool) -> None:
+        """
+           Update the meta state for iteration `i` having score `score`
+           logs objective information if log=True
+
+            Simply passes through to @EvaluationOptions.update
+        Args:
+            i (int): iteration index to set score at
+            score (float): score value to save
+            log (bool): writes objective information to log file if True
+        """
+        self.eval_params.update(i, score, log)
+    
+    @property
+    def best_params(self) -> str:
+        """
+            The integer iteration that contains the best parameter values, as a string
+
+        Returns:
+            str: iteration number
+        """
+        return self.eval_params._best_params_iteration
+    
+    @property
+    def best_score(self) -> float:
+        """
+            Best score known to the current calibration
+
+        Returns:
+            float: best score
+        """
+        return self.eval_params.best_score
+    
+    def restart(self) -> int:
+        return self.eval_params.restart()
 
 class Calibratable(Adjustable, Evaluatable):
     """

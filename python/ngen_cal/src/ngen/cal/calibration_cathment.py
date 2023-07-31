@@ -6,6 +6,9 @@ if TYPE_CHECKING:
     from pandas import DataFrame
     from pathlib import Path
     from geopandas import GeoSeries
+    from datetime import datetime
+    from typing import Tuple, Optional
+    from .model import EvaluationOptions
 
 from hypy.catchment import FormulatableCatchment # type: ignore
 from hypy.nexus import Nexus
@@ -32,6 +35,7 @@ class AdjustableCatchment(FormulatableCatchment, Adjustable):
         Adjustable.__init__(self=self, df=DataFrame(params).rename(columns={'init': '0'}))
         #FIXME paramterize
         self._output_file = workdir/'{}.csv'.format(self.id)
+        self._workdir = workdir
     
     def save_output(self, i) -> None:
         """
@@ -42,7 +46,7 @@ class AdjustableCatchment(FormulatableCatchment, Adjustable):
         shutil.move(self._output_file, '{}_last'.format(self._output_file))
     
     #update handled in meta, TODO remove this method???
-    def update(self, iteration: int) -> None:
+    def update_params(self, iteration: int) -> None:
         pass
 
 class EvaluatableCatchment(Evaluatable):
@@ -50,7 +54,7 @@ class EvaluatableCatchment(Evaluatable):
         A catchment which is "observable" which means model output can be evaluated against
         these observations for this catchment.
     """
-    def __init__(self, nexus: Nexus, start_time: str, end_time: str, fabric: "GeoSeries", output_var: str):
+    def __init__(self, nexus: Nexus, start_time: str, end_time: str, fabric: "GeoSeries", output_var: str, eval_params: 'EvaluationOptions'):
         """Initialize the evaluatable catchment
 
         Args:
@@ -60,6 +64,7 @@ class EvaluatableCatchment(Evaluatable):
             fabric (GeoSeries): The catchment hydrofabric representation
             params (dict, optional): _description_. Defaults to {}.
         """
+        super().__init__(eval_params)
         self._outflow = nexus
         #For BMI modules, look up name from realization config
         #If no `main_output_variable`, default to Q_OUT
@@ -73,6 +78,11 @@ class EvaluatableCatchment(Evaluatable):
         self._observed = self._observed * 0.028316847
         self._output = None
         self._fabric = fabric
+        self._eval_range = self.eval_params._eval_range
+        
+    @property
+    def evaluation_range(self) -> 'Optional[Tuple[datetime, datetime]]':
+        return self._eval_range
 
     @property
     def output(self) -> 'DataFrame':
@@ -119,6 +129,17 @@ class CalibrationCatchment(AdjustableCatchment, EvaluatableCatchment):
     """
         A Calibratable interface defining required properties for a calibratable object
     """
-    def __init__(self, workdir: str, id: str, nexus: Nexus, start_time: str, end_time: str, fabric: "GeoSeries", output_var: str, params: dict = {}):
-        EvaluatableCatchment.__init__(self, nexus, start_time, end_time, fabric, output_var)
+    def __init__(self, workdir: str, id: str, nexus: Nexus, start_time: str, end_time: str, fabric: "GeoSeries", output_var: str, eval_params: 'EvaluationOptions', params: dict = {}):
+        EvaluatableCatchment.__init__(self, nexus, start_time, end_time, fabric, output_var, eval_params)
         AdjustableCatchment.__init__(self,  workdir, id, nexus, params)
+
+    def restart(self) -> int:
+        #TODO validate the dataframe
+        restart_iteration = 0
+        try:
+            super(AdjustableCatchment, self).load_df(self._workdir)
+            restart_iteration = super(EvaluatableCatchment, self).restart()
+        except FileNotFoundError:
+            pass
+        return restart_iteration
+        
