@@ -77,7 +77,7 @@ def validate(catchment_file,catchment_subset,nexus_file,nexus_subset,realization
 
         serialized_realization = NgenRealization.parse_file(realization_file)
 
-        if True: # Turn off path validation if ya want
+        if False: # Turn off path validation if ya want
             fm = serialized_realization.global_config.formulations
             for j,jform in enumerate(fm):
                 parms = jform.params
@@ -87,7 +87,7 @@ def validate(catchment_file,catchment_subset,nexus_file,nexus_subset,realization
                 for jmod in mods:
                     validate_paths(jmod.params,['config','init_config','library','library_file'])
 
-        if hasattr(serialized_realization,'catchments'):
+        if len(serialized_realization.catchments) > 0:
             catch_property = serialized_realization.catchments
             realization_catchments = list(catch_property.keys())
 
