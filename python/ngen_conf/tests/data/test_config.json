@@ -41,7 +41,7 @@
                                 "name": "bmi_c", 
                                 "model_type_name": "CFE", 
                                 "main_output_variable": "Q_OUT", 
-                                "init_config": "data/CFE/config.txt", 
+                                "init_config": "CFE/config.txt", 
                                 "allow_exceed_end_time": true, 
                                 "fixed_time_step": false, 
                                 "uses_forcing_file": false, 
@@ -80,7 +80,7 @@
         ], 
         "forcing": {
             "file_pattern": "cat-1.csv", 
-            "path": "data/forcing/", 
+            "path": "./python/ngen_conf/tests/data/forcing/", 
             "provider": "CsvPerFeature"
         }
     }, 
@@ -91,6 +91,34 @@
     }, 
     "routing": {
         "t_route_connection_path": "/local/ngen/workdir/extern/t-route/src/ngen_routing", 
-        "t_route_config_file_with_path": "routing/fake_config.yaml"
+        "t_route_config_file_with_path": "./python/ngen_conf/tests/data/routing/fake_config.yaml"
+    },
+    "catchments": {
+        "cat-27": {
+          "formulations": [
+                {
+                    "name": "bmi_c",
+                    "params": {
+                        "name": "bmi_c",
+                        "model_type_name": "PET",
+                        "library_file": "./extern/evapotranspiration/evapotranspiration/cmake_build/libpetbmi",
+                        "forcing_file": "",
+                        "init_config": "",
+                        "allow_exceed_end_time": true,
+                        "main_output_variable": "water_potential_evaporation_flux",
+                        "registration_function": "register_bmi_pet",
+                        "variables_names_map": {
+                            "water_potential_evaporation_flux": "potential_evapotranspiration"
+                        },
+                        "uses_forcing_file": false
+                    }
+                }
+            ],
+            "forcing": {
+                "file_pattern": ".*{{id}}.*..csv",
+                "path": "./python/ngen_conf/tests/data/forcing/",
+                "provider": "CsvPerFeature"
+            }
+        }
     }
 }

@@ -1,4 +1,6 @@
 from contextlib import contextmanager
+import sys
+import os
 from os import getcwd, chdir
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -20,3 +22,18 @@ def pushd(path: 'Path') -> None:
     finally:
         #when finished, return to original working dir
         chdir(cwd)
+        
+def run_args():
+    
+    if len(sys.argv) > 4:
+        ngen_args = sys.argv[1:]
+    else:
+        ngen_args = []
+        ngen_args.append(os.environ.get('CATCH_CONF'))
+        ngen_args.append(os.environ.get('CATCH_SUB'))
+        ngen_args.append(os.environ.get('NEX_CONF'))
+        ngen_args.append(os.environ.get('NEX_SUB'))
+        ngen_args.append(os.environ.get('REALIZATION'))
+        ngen_args.append(os.environ.get('CROSSWALK'))
+
+    return ngen_args
