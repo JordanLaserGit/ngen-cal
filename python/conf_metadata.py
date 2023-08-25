@@ -143,8 +143,8 @@ if __name__ == "__main__":
 
     # Write metadata to file 
     meta_name = 'metadata.json'
-    metadata_dir = Path(catchment_file).parent.parent
-    metadata_file = Path(metadata_dir,'metadata',meta_name)
+    metadata_dir = Path(Path(catchment_file).parent.parent,'metadata')
+    metadata_file = Path(metadata_dir,meta_name)
     if not os.path.exists(metadata_dir): os.mkdir(metadata_dir)
     with open(metadata_file,'w') as mf:
         mf.write(json.dumps(run_config_metadata.RUN_CONFIG, indent=4))
