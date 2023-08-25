@@ -1,6 +1,5 @@
 import json, os, re, hashlib, time
 from pathlib import Path
-# from ngen.config.configurations import Forcing, Time # 
 from ngen.config.realization import NgenRealization
 from ngen.config.metadata import FileMetadata, RunConfigMetadata, ModelForcing, ModelTime
 from ngen.config.utils import run_args
@@ -61,7 +60,11 @@ def metadata_dictionary(catchment_file, nexus_file, realization_file, crosswalk_
     model_crosswalk  = extract_metadata_file(crosswalk_file,"IN_FILE")
 
     # Forcing    
-    forcing_hash = 999 # TODO : this needs to come from the forcing metadata file
+    # forcing_hash = 999 # TODO : this needs to come from the forcing metadata file
+    forcing_metadata = Path(str(global_forcing.path),'metadata/ids')
+    with open(forcing_metadata) as fp:
+        forcing_hash = json.load(fp)['root_hash']      
+
     model_forcing = ModelForcing(
         global_forcing.file_pattern,
         str(global_forcing.path),
@@ -135,5 +138,9 @@ if __name__ == "__main__":
 
     run_config_metadata = metadata_dictionary(catchment_file, nexus_file, realization_file, crosswalk_file)
 
-    # Printing the generated metadata
-    print(json.dumps(run_config_metadata.RUN_CONFIG, indent=4))
+    # Write metadata to file 
+    meta_name = 'metadata.json'
+    metadata_dir = os.pardir(catchment_file)
+    metadata_file = os.path.join('metadata_dir',meta_name)
+    with open(metadata_file,'w') as mf:
+        mf.write(json.dumps(run_config_metadata.RUN_CONFIG, indent=4))
