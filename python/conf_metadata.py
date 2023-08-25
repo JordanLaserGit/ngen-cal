@@ -6,7 +6,7 @@ from ngen.config.utils import run_args
 
 def determine_path_type(path):
     path_str = str(path)
-    if path_str == '.':
+    if path_str == '.' or path_str == "":
         return None
     else:
         if re.match(r'^[a-zA-Z]:\\|/', path_str):
@@ -60,10 +60,13 @@ def metadata_dictionary(catchment_file, nexus_file, realization_file, crosswalk_
     model_crosswalk  = extract_metadata_file(crosswalk_file,"IN_FILE")
 
     # Forcing    
-    # forcing_hash = 999 # TODO : this needs to come from the forcing metadata file
+    # forcing_hash = 999 # TODO : this needs to come from the forcing metadata file    
     forcing_metadata = Path(str(global_forcing.path),'metadata/ids')
-    with open(forcing_metadata) as fp:
-        forcing_hash = json.load(fp)['root_hash']      
+    try:
+        with open(forcing_metadata) as fp:
+            forcing_hash = json.load(fp)['root_hash']      
+    except:
+        forcing_hash = 999
 
     model_forcing = ModelForcing(
         global_forcing.file_pattern,
@@ -140,7 +143,8 @@ if __name__ == "__main__":
 
     # Write metadata to file 
     meta_name = 'metadata.json'
-    metadata_dir = os.pardir(catchment_file)
-    metadata_file = os.path.join('metadata_dir',meta_name)
+    metadata_dir = Path(catchment_file).parent.parent
+    metadata_file = Path(metadata_dir,'metadata',meta_name)
+    if not os.path.exists(metadata_dir): os.mkdir(metadata_dir)
     with open(metadata_file,'w') as mf:
         mf.write(json.dumps(run_config_metadata.RUN_CONFIG, indent=4))
